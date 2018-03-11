@@ -5,8 +5,6 @@ Author: Moustafa Alzantot (malzantot@ucla.edu)
 import numpy as np
 
 import gym
-import src.base.ensemble as ensemble
-#import src.experiments.gym_mountain as ensemble
 
 n_states = 40
 iter_max = 10000
@@ -41,14 +39,12 @@ def obs_to_state(env, obs):
     env_low = env.observation_space.low
     env_high = env.observation_space.high
     env_dx = (env_high - env_low) / n_states
-    # print("env_low[", env_low[0], ",",env_low[1], "], env_dx[", env_dx[0], ",", env_dx[1],"]")
-    # print("obs[0]: ", obs[0], " obs[1]: ", obs[1])
-    pos = int((obs[0] - env_low[0])/env_dx[0])
-    vel = int((obs[1] - env_low[1])/env_dx[1])
-    return pos, vel
+    a = int((obs[0] - env_low[0])/env_dx[0])
+    b = int((obs[1] - env_low[1])/env_dx[1])
+    return a, b
 
 
-def qlearn():
+if __name__ == '__main__':
     env_name = 'MountainCar-v0'
     env = gym.make(env_name)
     env.seed(0)
@@ -61,14 +57,19 @@ def qlearn():
         ## eta: learning rate is decreased at each step
         eta = max(min_lr, initial_lr * (0.85 ** (i//100)))
         for j in range(t_max):
-            pos, vel = obs_to_state(env, obs)
-            action = ensemble.choose_action_qlearn(env, pos, q_table, vel)
+            a, b = obs_to_state(env, obs)
+            if np.random.uniform(0, 1) < eps:
+                action = np.random.choice(env.action_space.n)
+            else:
+                logits = q_table[a][b]
+                logits_exp = np.exp(logits)
+                probs = logits_exp / np.sum(logits_exp)
+                action = np.random.choice(env.action_space.n, p=probs)
             obs, reward, done, _ = env.step(action)
             total_reward += reward
             # update q table
             a_, b_ = obs_to_state(env, obs)
-            q_table[pos][vel][action] = q_table[pos][vel][action] + eta * (reward + gamma *  np.max(q_table[a_][b_]) - q_table[pos][vel][action])
-            print("q_table[pos(", pos, ")][vel(", vel, ")][action(", action, ")]):", q_table[pos][vel][action], " - reward ", reward)
+            q_table[a][b][action] = q_table[a][b][action] + eta * (reward + gamma *  np.max(q_table[a_][b_]) - q_table[a][b][action])
             if done:
                 break
         if i % 100 == 0:
@@ -78,6 +79,3 @@ def qlearn():
     print("Average score of solution = ", np.mean(solution_policy_scores))
     # Animate it
     run_episode(env, solution_policy, True)
-    env.close()
-
-

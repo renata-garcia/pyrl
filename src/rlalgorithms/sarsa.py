@@ -1,3 +1,6 @@
+import random
+import sys
+
 """
 Q-Learning example using OpenAI gym MountainCar enviornment
 Author: Moustafa Alzantot (malzantot@ucla.edu)
@@ -11,9 +14,10 @@ import src.base.ensemble as ensemble
 n_states = 40
 iter_max = 10000
 
-initial_lr = 1.0 # Learning rate
+alpha=0.1
+gamma=0.9
+
 min_lr = 0.003
-gamma = 1.0
 t_max = 10000
 eps = 0.02
 
@@ -48,18 +52,18 @@ def obs_to_state(env, obs):
     return pos, vel
 
 
-def qlearn():
+def sarsa():
     env_name = 'MountainCar-v0'
     env = gym.make(env_name)
     env.seed(0)
     np.random.seed(0)
-    print ('----- using Q Learning -----')
+    print ('----- using SARSA -----')
     q_table = np.zeros((n_states, n_states, 3))
     for i in range(iter_max):
         obs = env.reset()
         total_reward = 0
         ## eta: learning rate is decreased at each step
-        eta = max(min_lr, initial_lr * (0.85 ** (i//100)))
+        #eta = max(min_lr, initial_lr * (0.85 ** (i//100)))
         for j in range(t_max):
             pos, vel = obs_to_state(env, obs)
             action = ensemble.choose_action_qlearn(env, pos, q_table, vel)
@@ -67,8 +71,7 @@ def qlearn():
             total_reward += reward
             # update q table
             a_, b_ = obs_to_state(env, obs)
-            q_table[pos][vel][action] = q_table[pos][vel][action] + eta * (reward + gamma *  np.max(q_table[a_][b_]) - q_table[pos][vel][action])
-            print("q_table[pos(", pos, ")][vel(", vel, ")][action(", action, ")]):", q_table[pos][vel][action], " - reward ", reward)
+            q_table[pos][vel][action] = q_table[pos][vel][action] + alpha * (reward + gamma * np.max(q_table[a_][b_] - q_table[pos][vel][action]))
             if done:
                 break
         if i % 100 == 0:
@@ -79,5 +82,4 @@ def qlearn():
     # Animate it
     run_episode(env, solution_policy, True)
     env.close()
-
 
