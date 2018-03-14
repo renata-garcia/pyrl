@@ -3,9 +3,14 @@ Q-Learning example using OpenAI gym MountainCar enviornment
 Author: Moustafa Alzantot (malzantot@ucla.edu)
 """
 import numpy as np
-
+import time
 import gym
 import src.base.ensemble as ensemble
+from threading import Condition
+
+#debug
+qlearn_time = 0
+qlearn_time_set_weights = 0.03
 
 ql_n_states = 40
 
@@ -15,23 +20,23 @@ ql_gamma = 1.0
 ql_t_max = 100
 ql_eps = 0.02
 
-def choose_action_qlearn(pos, q_table, vel):
+def choose_action_qlearn(e, condition, lock_ens_w_a, pos, q_table, vel):
     logits = q_table[pos][vel]
     logits_exp = np.exp(logits)
-
-    ensemble.ensemble_lock_ens_w_a.acquire()
-    ensemble_weights_actions = np.append(ensemble.ensemble_weights_actions, logits_exp)
-    ensemble.ensemble_lock_ens_w_a.release()
-
-    ensemble.ensemble_condition.acquire()
-    while True:
-        try:
-            action = ensemble.ensemble_stack_actions.pop()
-            break
-        except ValueError:
-            ensemble.ensemble_condition.wait()
-
-    ensemble.ensemble_condition.release()
+    print("qlearn -- choose_action_qlearn(pos, q_table, vel): setWeightsActions - ", logits_exp)
+    lock_ens_w_a.acquire()
+    qlearn_set_weights_actions = False
+    while (not qlearn_set_weights_actions):
+        if (not qlearn_set_weights_actions):
+            time.sleep(qlearn_time + qlearn_time_set_weights)
+        qlearn_set_weights_actions = e.setWeightsActions(logits_exp)
+    lock_ens_w_a.release()
+    condition.acquire()
+    print("qlearn -- condition.acquire()")
+    condition.wait()
+    print("qlearn -- condition.wait()")
+    action = e.get_actions()
+    condition.release()
     return action
 
 def ql_run_episode(env, policy=None, render=False):
@@ -65,21 +70,24 @@ def obs_to_state(env, obs):
     return pos, vel
 
 
-def qlearn():
+def qlearn(e, condition, lock_ens_w_a):
+    time.sleep(qlearn_time)
+    print("qlearn -- begin qlearn():")
     env_name = 'MountainCar-v0'
     ql_env = gym.make(env_name)
     ql_env.seed(0)
     np.random.seed(0)
     print ('----- using Q Learning -----')
     q_table = np.zeros((ql_n_states, ql_n_states, 3))
-    for i in range(ensemble.ensemble_inter_max):
+    for i in range(e.get_inter_max()):
+        print("qlearn -- i:", i)
         obs = ql_env.reset()
         total_reward = 0
         ## eta: learning rate is decreased at each step
         eta = max(ql_min_lr, ql_initial_lr * (0.85 ** (i // 100)))
         for j in range(ql_t_max):
             pos, vel = obs_to_state(ql_env, obs)
-            action = choose_action_qlearn(ql_env, pos, q_table, vel)
+            action = choose_action_qlearn(e, condition, lock_ens_w_a, pos, q_table, vel)
             obs, reward, done, _ = ql_env.step(action)
             total_reward += reward
             # update q table
@@ -89,10 +97,10 @@ def qlearn():
             if done:
                 break
         if i % 100 == 0:
-            print('Iteration #%d -- Total reward = %d.' %(i+1, total_reward))
+            print('qlearn -- Iteration #%d -- Total reward = %d.' %(i+1, total_reward))
     solution_policy = np.argmax(q_table, axis=2)
     solution_policy_scores = [ql_run_episode(ql_env, solution_policy, False) for _ in range(100)]
-    print("Average score of solution = ", np.mean(solution_policy_scores))
+    print("qlearn -- Average score of solution = ", np.mean(solution_policy_scores))
     # Animate it
     ql_run_episode(ql_env, solution_policy, True)
     ql_env.close()

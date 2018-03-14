@@ -3,10 +3,14 @@ Q-Learning example using OpenAI gym MountainCar enviornment
 Author: Moustafa Alzantot (malzantot@ucla.edu)
 """
 import numpy as np
-
+import time
 import gym
 import src.base.ensemble as ensemble
 #import src.experiments.gym_mountain as ensemble
+
+#debug
+sarsa_time = 0
+sarsa_time_set_weights = 0.03
 
 srs_n_states = 40
 
@@ -19,23 +23,23 @@ srs_t_max = 100
 srs_eps = 0.02
 
 
-def choose_action_sarsa(pos, q_table, vel):
+def choose_action_sarsa(e, condition, lock_ens_w_a, pos, q_table, vel):
     logits = q_table[pos][vel]
     logits_exp = np.exp(logits)
-
-    ensemble.ensemble_lock_ens_w_a.acquire()
-    ensemble_weights_actions = np.append(ensemble.ensemble_weights_actions, logits_exp)
-    ensemble.ensemble_lock_ens_w_a.release()
-
-    ensemble.ensemble_condition.acquire()
-    while True:
-        try:
-            action = ensemble.ensemble_stack_actions.pop()
-            break
-        except ValueError:
-            ensemble.ensemble_condition.wait()
-
-    ensemble.ensemble_condition.release()
+    print("sarsa -- choose_action_sarsa(e, condition, pos, q_table, vel): setWeightsActions - ", logits_exp)
+    lock_ens_w_a.acquire()
+    sarsa_set_weights_actions = False
+    while (not sarsa_set_weights_actions):
+        if (not sarsa_set_weights_actions):
+            time.sleep(sarsa_time + sarsa_time_set_weights)
+        sarsa_set_weights_actions = e.setWeightsActions(logits_exp)
+    lock_ens_w_a.release()
+    condition.acquire()
+    print("sarsa -- condition.acquire()")
+    condition.wait()
+    print("sarsa -- condition.wait()")
+    action = e.get_actions()
+    condition.release()
     return action
 
 
@@ -70,21 +74,24 @@ def obs_to_state(env, obs):
     return pos, vel
 
 
-def sarsa():
+def sarsa(e, condition, lock_ens_w_a):
+    time.sleep(sarsa_time)
+    print("sarsa -- begin sarsa():")
     env_name = 'MountainCar-v0'
     srs_env = gym.make(env_name)
     srs_env.seed(0)
     np.random.seed(0)
     print ('----- using SARSA -----')
     q_table = np.zeros((srs_n_states, srs_n_states, 3))
-    for i in range(ensemble.ensemble_inter_max):
+    for i in range(e.get_inter_max()):
+        print("sarsa -- i:", i)
         obs = srs_env.reset()
         total_reward = 0
         ## eta: learning rate is decreased at each step
         eta = max(srs_min_lr, srs_initial_lr * (0.85 ** (i // 100)))
         for j in range(srs_t_max):
             pos, vel = obs_to_state(srs_env, obs)
-            action = choose_action_sarsa(srs_env, pos, q_table, vel)
+            action = choose_action_sarsa(e, condition, lock_ens_w_a, pos, q_table, vel)
             obs, reward, done, _ = srs_env.step(action)
             total_reward += reward
             # update q table
@@ -93,10 +100,10 @@ def sarsa():
             if done:
                 break
         if i % 100 == 0:
-            print('Iteration #%d -- Total reward = %d.' %(i+1, total_reward))
+            print('sarsa -- Iteration #%d -- Total reward = %d.' %(i+1, total_reward))
     solution_policy = np.argmax(q_table, axis=2)
     solution_policy_scores = [srs_run_episode(srs_env, solution_policy, False) for _ in range(100)]
-    print("Average score of solution = ", np.mean(solution_policy_scores))
+    print("sarsa -- Average score of solution = ", np.mean(solution_policy_scores))
 
     #print(q_table)
     #print(np.shape(q_table))
